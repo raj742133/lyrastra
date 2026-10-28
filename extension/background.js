@@ -3,7 +3,7 @@
 chrome.runtime.onMessage.addListener((msg, _sender, send) => {
   if (msg?.type === 'open') { openViewer(); return; }
   if (msg?.type !== 'lyrics') return;
-  fetchLyrics(msg).then(send).catch(() => send(null));
+  fetchLyrics(msg).then((lrc) => send({ lrc })).catch(() => send({ error: true }));
   return true;
 });
 
@@ -18,20 +18,78 @@ async function openViewer() {
   await chrome.windows.create({ url, type: 'normal', width: 1280, height: 720 });
 }
 
-async function fetchLyrics({ title, artist, duration }) {
-  const q = new URLSearchParams({ track_name: title, artist_name: artist });
-  if (duration) q.set('duration', String(Math.round(duration)));
+// Titles/artists on YouTube Music rarely match LRCLIB exactly ("Song (Official Video)", "A, B & C"),
+// so try the exact pair first, then cleaned-up variants, then a scored search.
+const cleanTitle = (s) => s
+  .replace(/\s*[(\[][^)\]]*[)\]]/g, '')
+  .replace(/\s*[-–|]\s*(official|video|lyrics?|audio|remaster).*$/i, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+const firstArtist = (s) => s.split(/\s*(?:,|&|\band\b|\bfeat\.?|\bft\.?)\s*|\s+[x×]\s+/i)[0].trim();
+const norm = (s) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
 
-  let r = await fetch('https://lrclib.net/api/get?' + q);
-  if (r.ok) {
-    const j = await r.json();
-    if (j.syncedLyrics) return j.syncedLyrics;
-  }
+async function getJson(url) {
+  const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('lrclib ' + r.status);
+  return r.json();
+}
 
-  r = await fetch('https://lrclib.net/api/search?' + new URLSearchParams({ track_name: title, artist_name: artist }));
-  if (r.ok) {
-    const hit = (await r.json()).find((x) => x.syncedLyrics);
-    if (hit) return hit.syncedLyrics;
+const scriptOf = (s) => {
+  const m = (s || '').match(/[\p{L}]/gu) || [];
+  let deva = 0, guru = 0, latin = 0;
+  for (const c of m) { const k = c.codePointAt(0); if (k >= 0x900 && k <= 0x97f) deva++; else if (k >= 0xa00 && k <= 0xa7f) guru++; else if (k < 0x250) latin++; }
+  const top = Math.max(deva, guru, latin);
+  return !top ? '' : top === deva ? 'deva' : top === guru ? 'guru' : 'latin';
+};
+
+function pick(results, title, artist, duration, script) {
+  const ta = norm(title), aa = norm(artist);
+  let best = null, bestScore = 0;
+  for (const x of results) {
+    if (!x.syncedLyrics) continue;
+    const xt = norm(x.trackName || '');
+    let text = 0;
+    if (xt === ta) text += 4;
+    else if (xt && ta && (xt.includes(ta) || ta.includes(xt))) text += 2;
+    if (aa && norm(x.artistName || '').includes(aa)) text += 3;
+    if (!text) continue; // same length alone is not enough: never show another song's lyrics
+    const dd = duration && x.duration ? Math.abs(x.duration - duration) : 0;
+    if (dd > 25 && text < 7) continue; // far-off length only if title AND artist both match
+    const score = text + (dd <= 6 ? 6 - dd : 0) + (script && scriptOf(x.syncedLyrics) === script ? 2.5 : 0);
+    if (score > bestScore) { best = x; bestScore = score; }
   }
+  return best ? best.syncedLyrics : null;
+}
+
+async function fetchLyrics({ title, artist, duration, script }) {
+  const dur = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 0;
+  const ct = cleanTitle(title) || title;
+  const fa = firstArtist(artist) || artist;
+  let failed = false;
+  const attempt = async (fn) => { try { return await fn(); } catch { failed = true; return null; } };
+  const get = (t, a) => async () => {
+    const q = new URLSearchParams({ track_name: t, artist_name: a });
+    if (dur) q.set('duration', String(dur));
+    return (await getJson('https://lrclib.net/api/get?' + q))?.syncedLyrics || null;
+  };
+  const search = (params) => async () => {
+    const list = await getJson('https://lrclib.net/api/search?' + new URLSearchParams(params));
+    return list ? pick(list, ct, fa, dur, script) : null;
+  };
+
+  const tries = [
+    get(title, artist),
+    get(ct, fa),
+    search({ q: title }),
+    search({ q: `${ct} ${fa}` }),
+    search({ track_name: ct, artist_name: fa }),
+    search({ track_name: ct }),
+  ];
+  // run every lookup at once (a slow LRCLIB miss must not block the rest), prefer them in order
+  const found = await Promise.all(tries.map(attempt));
+  const lrc = found.find(Boolean);
+  if (lrc) return lrc;
+  if (failed) throw new Error('lyrics lookup failed'); // network/server trouble: let the viewer retry
   return null;
 }

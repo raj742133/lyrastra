@@ -41,6 +41,19 @@
     img.src = url.replace(/=w\d+-h\d+.*$/, '=w120-h120');
   }
 
+  // YouTube Music shows its own lyrics (LyricFind / Musixmatch, Latin or native script) in the
+  // Lyrics tab. Read them when that panel exists so the viewer can match the same script and use
+  // them as a fallback when LRCLIB has nothing.
+  let sentLyr = '';
+  function panelLyrics() {
+    const el = document.querySelector('ytmusic-description-shelf-renderer');
+    if (!el) return { text: '', source: '' };
+    const body = el.querySelector('.description') || el;
+    const text = (body.innerText || '').split('\n').filter((l) => l.trim() && !/^Source:/i.test(l.trim())).join('\n');
+    const source = ((el.innerText || '').match(/Source:\s*([^\n]+)/i) || [])[1] || '';
+    return { text, source };
+  }
+
   // Stream the player state to the viewer page ~8x/s; it interpolates between updates.
   setInterval(() => {
     if (!chrome.runtime?.id) return; // extension was reloaded; this script is orphaned
@@ -49,8 +62,10 @@
     if (!t || !v) return;
     const key = t.title + '|' + t.artist;
     if (key !== trackKey) { trackKey = key; loadAccent(t.thumb); }
+    const pl = panelLyrics();
+    const lyr = pl.text !== sentLyr ? (sentLyr = pl.text, { text: pl.text, source: pl.source }) : undefined;
     chrome.runtime.sendMessage(
-      { type: 'state', thumb: t.thumb, title: t.title, artist: t.artist, duration: v.duration, t: v.currentTime, paused: v.paused, accent },
+      { type: 'state', lyr, thumb: t.thumb, title: t.title, artist: t.artist, duration: Number.isFinite(v.duration) ? v.duration : 0, t: v.currentTime, paused: v.paused, accent },
       () => void chrome.runtime.lastError // no viewer open: ignore
     );
   }, 125);

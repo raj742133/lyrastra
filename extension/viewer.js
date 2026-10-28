@@ -3,10 +3,18 @@
   const LEAD = 0.12;
   const DEPTH = 520; // world distance between consecutive lines
   const FOCAL = 700;
+  const GAP_MIN = 3; // seconds of silence before the wave takes over
 
   let canvas, ctx, meta;
   let trackKey = '';
   let lyrics = [];
+  let panelLyr = ''; // lyrics text YouTube Music itself shows (if its Lyrics tab was opened)
+  const scriptOf = (s) => {
+    let d = 0, g = 0, l = 0;
+    for (const c of s.match(/\p{L}/gu) || []) { const k = c.codePointAt(0); if (k >= 0x900 && k <= 0x97f) d++; else if (k >= 0xa00 && k <= 0xa7f) g++; else if (k < 0x250) l++; }
+    const top = Math.max(d, g, l);
+    return !top ? '' : top === d ? 'deva' : top === g ? 'guru' : 'latin';
+  };
   let status = '';
   let coverAccent = null;
   let useCover = true;
@@ -45,7 +53,10 @@
   const playerTime = () => (player ? player.t + (player.paused ? 0 : (performance.now() - recvAt) / 1000) : 0);
   const waiting = () => !player || performance.now() - recvAt > 4000;
 
-  function onTrackChange(t) {
+  let fetchSeq = 0;
+  let lastDur = 0, lastT = 0;
+
+  function onTrackChange(t, prevDur = 0) {
     lyrics = [];
     groups.clear();
     status = 'Looking for synced lyrics…';
@@ -55,22 +66,43 @@
     const s = document.createElement('small');
     s.textContent = t.artist;
     meta.append(b, s);
-    const key = trackKey;
-    chrome.runtime.sendMessage({ type: 'lyrics', title: t.title, artist: t.artist, duration: t.duration }, (res) => {
-      if (key !== trackKey) return;
-      if (chrome.runtime.lastError || !res) { status = 'No synced lyrics found for this track'; return; }
-      lyrics = parseLrc(res);
-      status = lyrics.length ? '' : 'No synced lyrics found for this track';
+    loadLyrics(t, ++fetchSeq, 0, prevDur);
+  }
+
+  // The player bar text can change before the video's duration is known, and a lookup can fail
+  // transiently (service worker asleep, network). Wait for the duration, then retry a few times.
+  function loadLyrics(t, seq, attempt, prevDur = 0) {
+    const dur = player && player.title === t.title ? player.duration : t.duration;
+    // on auto-advance the bar shows the new title while the player still reports the old song's
+    // length: wait (briefly) for a length that is known and has moved on from the previous song
+    const stale = prevDur > 0 && Math.abs(dur - prevDur) < 0.5 && player && player.t > 3;
+    if ((!(dur > 0) || stale) && attempt < 6) { setTimeout(() => seq === fetchSeq && loadLyrics(t, seq, attempt + 1, prevDur), 400); return; }
+    chrome.runtime.sendMessage({ type: 'lyrics', title: t.title, artist: t.artist, duration: dur, script: scriptOf(panelLyr) }, (res) => {
+      if (seq !== fetchSeq) return;
+      const failed = chrome.runtime.lastError || !res || res.error;
+      if (failed && attempt < 4) { setTimeout(() => seq === fetchSeq && loadLyrics(t, seq, attempt + 1, 0), 1000 * (attempt + 1)); return; }
+      lyrics = !failed && res.lrc ? parseLrc(res.lrc) : [];
+      status = lyrics.length ? '' : failed ? 'Lyrics lookup failed' : 'No synced lyrics for this track';
+      // never leave a song stuck: quietly look again a few times (LRCLIB may be slow or the worker asleep)
+      if (!lyrics.length && attempt < 8) setTimeout(() => seq === fetchSeq && !lyrics.length && loadLyrics(t, seq, attempt + 3, 0), 15000);
     });
   }
 
   chrome.runtime.onMessage.addListener((m) => {
     if (m?.type !== 'state') return;
+    const prev = player;
+    if (m.lyr) panelLyr = m.lyr.text || '';
     player = m;
     recvAt = performance.now();
     coverAccent = m.accent || null;
     const key = m.title + '|' + m.artist;
-    if (key !== trackKey) { trackKey = key; onTrackChange(m); }
+    // new song, or the same song restarted / a different cut with a very different length
+    const restarted = prev && key === trackKey && m.t < lastT - 3 && m.t < 2;
+    const recut = key === trackKey && lastDur > 0 && m.duration > 0 && Math.abs(m.duration - lastDur) > 3;
+    lastT = m.t;
+    if (m.duration > 0) lastDur = m.duration;
+    if (key !== trackKey || recut) { const pd = key !== trackKey ? lastDur : 0; trackKey = key; lastDur = m.duration; onTrackChange(m, pd); }
+    else if (restarted && !lyrics.length) onTrackChange(m);
   });
 
   // ---------- constellation for one lyric line, placed in 3D ----------
@@ -153,7 +185,7 @@
     ctx.strokeStyle = hot(0.55 + 0.35 * k);
     ctx.lineWidth = 2;
     ctx.shadowColor = rgba(0.9);
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = 10;
     ctx.strokeRect(1, 1, W - 2, H - 2);
     ctx.shadowBlur = 0;
   }
@@ -177,7 +209,7 @@
       };
     });
     let active = -1;
-    g.nodes.forEach((n, i) => { if (t >= n.start) active = i; });
+    for (let i = 0; i < g.nodes.length; i++) { if (t >= g.nodes[i].start) active = i; else break; }
     const isLive = live && active >= 0 && t < g.nodes[g.nodes.length - 1].end + 0.8;
     const fogOf = (p) => clamp(1 - p.d / 1500, 0, 1) * clamp(1 + p.d / 320, 0, 1);
 
@@ -234,7 +266,6 @@
         ctx.shadowColor = rgba(1); ctx.shadowBlur = 34;
         ctx.fillStyle = hot(fog);
         ctx.fillText(n.w, x, y);
-        ctx.fillText(n.w, x, y);
         ctx.restore();
         if (age < 0.9) {
           ctx.strokeStyle = rgba(0.5 * (1 - age / 0.9)); ctx.lineWidth = 1.5;
@@ -248,13 +279,59 @@
       } else {
         const size = Math.max(9, 24 * n.emph * p.s * U);
         ctx.font = fontFor(g.mood, size, false);
-        ctx.shadowColor = rgba(0.9); ctx.shadowBlur = 9;
+        if (fog > 0.5) { ctx.shadowColor = rgba(0.9); ctx.shadowBlur = 9; }
         ctx.fillStyle = rgba(clamp(0.7 * fog * tw, 0, 1));
         ctx.fillText(n.w, p.x, p.y);
         star4(p.x, p.y + size * 0.85, Math.max(2.5, size * 0.17));
         ctx.shadowBlur = 0;
       }
     });
+  }
+
+  // While no lyric is being sung (gaps, intro, outro, no lyrics) the constellation fades away and a
+  // glowing wave takes over; when the next line begins the wave settles and the stars light up again.
+  let ambient = 0; // 0..1 eased
+  function drawWave(W, H, now, dt, on) {
+    ambient += ((on ? 1 : 0) - ambient) * Math.min(1, dt * (on ? 2.2 : 4));
+    if (ambient < 0.01) return;
+    const playing = player && !player.paused;
+    const cy = H / 2 + smy * 20, tm = now / 1000;
+    const amp = H * 0.11 * (0.55 + 0.45 * Math.sin(tm * 1.3)) * (playing ? 1 : 0.25) + H * 0.02;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const step = Math.max(4, W / 220);
+    for (let k = 0; k < 5; k++) {
+      const f = k / 4;
+      ctx.beginPath();
+      for (let x = 0; x <= W + step; x += step) {
+        const u = x / W, edge = Math.sin(u * Math.PI); // pinned to calm at both sides
+        const y = cy
+          + Math.sin(u * 7 + tm * (1.1 + f * 0.5) + k) * amp * edge
+          + Math.sin(u * 13 - tm * (1.7 - f * 0.4) + k * 2) * amp * 0.42 * edge
+          + Math.sin(u * 3 + tm * 0.6) * amp * 0.5 * edge * (k - 2) * 0.35;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      const main = k === 2;
+      ctx.lineWidth = main ? 3 : 1.4;
+      ctx.strokeStyle = main ? hot(0.9 * ambient) : rgba((0.45 - Math.abs(f - 0.5) * 0.5) * ambient);
+      ctx.shadowColor = rgba(1); ctx.shadowBlur = main ? 22 : 10;
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    // soft glow band under the wave
+    const g = ctx.createLinearGradient(0, cy - amp * 2.2, 0, cy + amp * 2.2);
+    g.addColorStop(0, rgba(0)); g.addColorStop(0.5, rgba(0.09 * ambient)); g.addColorStop(1, rgba(0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, cy - amp * 2.2, W, amp * 4.4);
+    // sparks riding the wave
+    for (let i = 0; i < 18; i++) {
+      const u = ((i / 18) + tm * 0.04 * (1 + (i % 3) * 0.3)) % 1, edge = Math.sin(u * Math.PI);
+      const y = cy + Math.sin(u * 7 + tm * 1.6 + 2) * amp * edge;
+      ctx.fillStyle = hot(0.7 * ambient * edge);
+      ctx.beginPath(); ctx.arc(u * W, y, 1.4 + (i % 3), 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
   }
 
   function drawBursts(now) {
@@ -275,7 +352,7 @@
     requestAnimationFrame(drawFrame);
     const dt = Math.min(0.05, (now - lastFrame) / 1000);
     lastFrame = now;
-    const dpr = devicePixelRatio || 1;
+    const dpr = Math.min(devicePixelRatio || 1, 1.5);
     const W = innerWidth, H = innerHeight;
     if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
@@ -295,7 +372,8 @@
     pulse *= Math.pow(0.04, dt);
     if (target) {
       // follow the sung word, drifting through the field
-      const act = target.nodes.filter((n) => t >= n.start).pop() || target.nodes[0];
+      let act = target.nodes[0];
+      for (const n of target.nodes) { if (t >= n.start) act = n; else break; }
       const k = 1 - Math.pow(0.06, dt);
       camX += (act.x * 0.55 + target.cx * 0.45 - camX) * k;
       camY += (act.y * 0.55 + target.cy * 0.45 - camY) * k;
@@ -303,13 +381,31 @@
     }
 
     drawDust(W, H, now);
+    // The wave is only for real silences: the gap between the end of the sung line and the next
+    // line must be longer than GAP_MIN, so short breaths between lines keep the constellation.
+    let longGap = false;
+    if (lyrics.length) {
+      const last = idx >= 0 ? lyrics[idx] : null;
+      const gapStart = last && last.words.length
+        ? Math.min(last.t + 0.4 + last.words.reduce((a, w) => a + w.length + 1, 0) * 0.075 + 0.8, lyrics[idx + 1] ? lyrics[idx + 1].t : 1e9)
+        : last ? last.t : 0;
+      let j = idx + 1;
+      while (j < lyrics.length && !lyrics[j].words.length) j++;
+      const gapEnd = j < lyrics.length ? lyrics[j].t : (player && player.duration > 0 ? player.duration : gapStart);
+      longGap = gapEnd - gapStart > GAP_MIN && t >= gapStart && t < gapEnd - 0.3;
+    } else {
+      longGap = !/Looking/.test(status); // a track with no lyrics at all
+    }
+    drawWave(W, H, now, dt, longGap && !waiting() && !(player && player.paused));
     drawRim(W, H, 0.5 * (0.5 + 0.5 * Math.sin(now / 1100)) + 0.5 * pulse);
 
     if (target) {
       const order = [];
       for (let i = focus - 1; i <= focus + 3; i++) if (i >= 0 && i < lyrics.length && lyrics[i].words.length) order.push(i);
       order.sort((a, b) => b - a); // far first
-      for (const i of order) drawGroup(getGroup(i), t, W, H, U, i === idx, now);
+      ctx.globalAlpha = 1 - ambient;
+      if (ambient < 0.99) for (const i of order) drawGroup(getGroup(i), t, W, H, U, i === idx, now);
+      ctx.globalAlpha = 1;
       for (const k of groups.keys()) if (k < focus - 3) groups.delete(k);
     }
     drawBursts(now);
@@ -326,7 +422,7 @@
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(msg, W / 2, H / 2);
+      ctx.fillText(msg, W / 2, H / 2 + Math.min(W, H) * 0.3);
     }
   }
 
@@ -346,6 +442,7 @@
       else if (e.key === ']') nudge(0.1);
       else if (e.key === 'f' || e.key === 'F') toggleFs();
       else if (e.key === 'c' || e.key === 'C') useCover = !useCover;
+      else if ((e.key === 'r' || e.key === 'R') && player) onTrackChange(player); // reload lyrics now
     });
     addEventListener('dblclick', toggleFs);
     addEventListener('mousemove', (e) => {
