@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skyfield</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body.idle { cursor: none; }
+  #ytmc-canvas { width: 100vw; height: 100vh; display: block; }
+  #ytmc-meta { position: fixed; left: 32px; bottom: 28px; font: 600 14px/1.3 system-ui, sans-serif; color: rgba(255,255,255,.75); pointer-events: none; }
+  #ytmc-meta small { display: block; font-weight: 400; opacity: .6; }
+</style>
+</head>
+<body>
+<canvas id="ytmc-canvas"></canvas>
+<div id="ytmc-meta"></div>
+<script src="viewer.js"></script>
+</body>
+</html>
