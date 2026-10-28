@@ -29,19 +29,24 @@ const firstArtist = (s) => s.split(/\s*(?:,|&|\band\b|\bfeat\.?|\bft\.?)\s*|\s+[
 const norm = (s) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
 
 // LRCLIB rate-limits bursts (429/503): retry a couple of times with a short back-off
-async function getJson(url, tries = 3) {
+async function getJson(url, tries = 4) {
   for (let i = 0; ; i++) {
+    let wait = 700 * (i + 1);
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
       if (r.status === 404) return null;
       if (r.ok) return r.json();
       if (i >= tries - 1 || (r.status !== 429 && r.status < 500)) throw new Error('lrclib ' + r.status);
+      wait = Math.max(wait, Math.min(+r.headers.get('retry-after') * 1000 || 0, 5000));
     } catch (e) {
       if (i >= tries - 1) throw e;
     }
-    await new Promise((res) => setTimeout(res, 600 * (i + 1)));
+    await new Promise((res) => setTimeout(res, wait));
   }
 }
+
+// some LRCLIB entries label plain text as synced: require real [mm:ss] stamps
+const timed = (s) => (s || '').match(/^\s*\[\d+:\d+/gm)?.length > 3;
 
 const scriptOf = (s) => {
   const m = (s || '').match(/[\p{L}]/gu) || [];
@@ -55,7 +60,7 @@ function pick(results, title, artist, duration, script) {
   const ta = norm(title), aa = norm(artist);
   let best = null, bestScore = 0;
   for (const x of results) {
-    if (!x.syncedLyrics) continue;
+    if (!timed(x.syncedLyrics)) continue;
     const xt = norm(x.trackName || '');
     let text = 0;
     if (xt === ta) text += 4;
@@ -79,8 +84,9 @@ async function fetchLyrics({ title, artist, duration, script }) {
   const get = (t, a) => async () => {
     const q = new URLSearchParams({ track_name: t, artist_name: a });
     if (dur) q.set('duration', String(dur));
-    const r = await getJson('https://lrclib.net/api/get?' + q);
-    return r?.syncedLyrics ? { lrc: r.syncedLyrics, dur: r.duration || 0 } : null;
+    // /get answers 503 for tracks it can't resolve; that is a miss, not an outage, so the searches decide
+    const r = await getJson('https://lrclib.net/api/get?' + q, 2).catch(() => null);
+    return timed(r?.syncedLyrics) ? { lrc: r.syncedLyrics, dur: r.duration || 0 } : null;
   };
   const search = (params) => async () => {
     const list = await getJson('https://lrclib.net/api/search?' + new URLSearchParams(params));
@@ -97,6 +103,11 @@ async function fetchLyrics({ title, artist, duration, script }) {
   for (const stage of stages) {
     hit = (await Promise.all(stage.map(attempt))).find(Boolean);
     if (hit) break;
+  }
+  // an exact-ish hit of a different length is a different recording: look for a closer one
+  if (hit && dur && hit.dur && Math.abs(hit.dur - dur) > 3) {
+    const alt = (await Promise.all([search({ q: `${ct} ${fa}` }), search({ track_name: ct, artist_name: fa })].map(attempt))).filter(Boolean);
+    for (const a of alt) if (a.dur && Math.abs(a.dur - dur) < Math.abs(hit.dur - dur)) hit = a;
   }
   if (hit) return hit;
   if (failed) throw new Error('lyrics lookup failed'); // network/server trouble: let the viewer retry
