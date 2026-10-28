@@ -28,7 +28,9 @@
   let camX = 0, camY = 0, camZ = 0;
   const groups = new Map();
   const bursts = [];
-  try { offset = parseFloat(localStorage.getItem('ytmc-offset')) || 0; } catch { /* storage blocked */ }
+  let lrcDur = 0; // length of the LRCLIB recording the lyrics were timed against
+  const offKey = () => 'ytmc-offset:' + (trackKey || '');
+  const loadOffset = () => { offset = 0; try { offset = parseFloat(localStorage.getItem(offKey())) || 0; } catch { /* storage blocked */ } };
 
   const accent = () => (useCover && coverAccent ? coverAccent : NEON);
   const rgba = (a) => { const c = accent(); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; };
@@ -82,6 +84,7 @@
       const failed = chrome.runtime.lastError || !res || res.error;
       if (failed && attempt < 4) { setTimeout(() => seq === fetchSeq && loadLyrics(t, seq, attempt + 1, 0), 1000 * (attempt + 1)); return; }
       lyrics = !failed && res.lrc ? parseLrc(res.lrc) : [];
+      lrcDur = !failed && res.dur ? res.dur : 0;
       status = lyrics.length ? '' : failed ? 'Lyrics lookup failed' : 'No synced lyrics for this track';
       // never leave a song stuck: quietly look again a few times (LRCLIB may be slow or the worker asleep)
       if (!lyrics.length && attempt < 8) setTimeout(() => seq === fetchSeq && !lyrics.length && loadLyrics(t, seq, attempt + 3, 0), 15000);
@@ -101,7 +104,7 @@
     const recut = key === trackKey && lastDur > 0 && m.duration > 0 && Math.abs(m.duration - lastDur) > 3;
     lastT = m.t;
     if (m.duration > 0) lastDur = m.duration;
-    if (key !== trackKey || recut) { const pd = key !== trackKey ? lastDur : 0; trackKey = key; lastDur = m.duration; onTrackChange(m, pd); }
+    if (key !== trackKey || recut) { const pd = key !== trackKey ? lastDur : 0; trackKey = key; lastDur = m.duration; loadOffset(); onTrackChange(m, pd); }
     else if (restarted && !lyrics.length) onTrackChange(m);
   });
 
@@ -370,7 +373,7 @@
     smx += (mx - smx) * Math.min(1, dt * 3);
     smy += (my - smy) * Math.min(1, dt * 3);
     pulse *= Math.pow(0.04, dt);
-    if (target) {
+    if (target && target.nodes.length) {
       // follow the sung word, drifting through the field
       let act = target.nodes[0];
       for (const n of target.nodes) { if (t >= n.start) act = n; else break; }
@@ -410,11 +413,18 @@
     }
     drawBursts(now);
 
+    if (lyrics.length && lrcDur && player && player.duration && Math.abs(lrcDur - player.duration) > 2) {
+      const d = player.duration - lrcDur;
+      ctx.font = '500 13px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Lyrics are for a version ${Math.abs(d).toFixed(0)}s ${d > 0 ? 'shorter' : 'longer'} than this one - timing may be off, nudge with [ ] ( { } = 1s )`, W / 2, H - 52);
+    }
     if (performance.now() < toastUntil) {
       ctx.font = '600 15px system-ui, sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.textAlign = 'center';
-      ctx.fillText(`Lyrics offset ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s`, W / 2, H - 28);
+      ctx.fillText(`Lyrics offset ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s (this song)`, W / 2, H - 28);
     }
     const msg = waiting() ? 'Waiting for YouTube Music… play a song in the other tab' : status;
     if (msg) {
@@ -429,7 +439,7 @@
   function nudge(d) {
     offset = Math.round((offset + d) * 10) / 10;
     toastUntil = performance.now() + 1500;
-    try { localStorage.setItem('ytmc-offset', String(offset)); } catch { /* storage blocked */ }
+    try { localStorage.setItem(offKey(), String(offset)); } catch { /* storage blocked */ }
   }
   const toggleFs = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
 
@@ -440,6 +450,9 @@
     addEventListener('keydown', (e) => {
       if (e.key === '[') nudge(-0.1);
       else if (e.key === ']') nudge(0.1);
+      else if (e.key === '{') nudge(-1);
+      else if (e.key === '}') nudge(1);
+      else if (e.key === '0') { offset = 0; nudge(0); }
       else if (e.key === 'f' || e.key === 'F') toggleFs();
       else if (e.key === 'c' || e.key === 'C') useCover = !useCover;
       else if ((e.key === 'r' || e.key === 'R') && player) onTrackChange(player); // reload lyrics now

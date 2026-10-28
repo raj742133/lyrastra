@@ -3,7 +3,7 @@
 chrome.runtime.onMessage.addListener((msg, _sender, send) => {
   if (msg?.type === 'open') { openViewer(); return; }
   if (msg?.type !== 'lyrics') return;
-  fetchLyrics(msg).then((lrc) => send({ lrc })).catch(() => send({ error: true }));
+  fetchLyrics(msg).then((hit) => send(hit ? { lrc: hit.lrc, dur: hit.dur } : { lrc: null })).catch(() => send({ error: true }));
   return true;
 });
 
@@ -59,7 +59,7 @@ function pick(results, title, artist, duration, script) {
     const score = text + (dd <= 6 ? 6 - dd : 0) + (script && scriptOf(x.syncedLyrics) === script ? 2.5 : 0);
     if (score > bestScore) { best = x; bestScore = score; }
   }
-  return best ? best.syncedLyrics : null;
+  return best ? { lrc: best.syncedLyrics, dur: best.duration || 0 } : null;
 }
 
 async function fetchLyrics({ title, artist, duration, script }) {
@@ -71,7 +71,8 @@ async function fetchLyrics({ title, artist, duration, script }) {
   const get = (t, a) => async () => {
     const q = new URLSearchParams({ track_name: t, artist_name: a });
     if (dur) q.set('duration', String(dur));
-    return (await getJson('https://lrclib.net/api/get?' + q))?.syncedLyrics || null;
+    const r = await getJson('https://lrclib.net/api/get?' + q);
+    return r?.syncedLyrics ? { lrc: r.syncedLyrics, dur: r.duration || 0 } : null;
   };
   const search = (params) => async () => {
     const list = await getJson('https://lrclib.net/api/search?' + new URLSearchParams(params));
@@ -88,8 +89,8 @@ async function fetchLyrics({ title, artist, duration, script }) {
   ];
   // run every lookup at once (a slow LRCLIB miss must not block the rest), prefer them in order
   const found = await Promise.all(tries.map(attempt));
-  const lrc = found.find(Boolean);
-  if (lrc) return lrc;
+  const hit = found.find(Boolean);
+  if (hit) return hit;
   if (failed) throw new Error('lyrics lookup failed'); // network/server trouble: let the viewer retry
   return null;
 }

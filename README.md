@@ -31,7 +31,7 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 
 | Key | Action |
 | --- | --- |
-| `[` / `]` | Shift lyric timing by -0.1 s / +0.1 s (saved) |
+| `[` / `]` | Shift lyric timing by -0.1 s / +0.1 s, saved per song (`{` `}` = 1 s, `0` resets) |
 | `C` | Toggle album-colour and neon lime |
 | `R` | Reload lyrics for the current song |
 | `F` or double-click | Fullscreen |
