@@ -46,6 +46,7 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 
 - LRCLIB has line-level timestamps only. Per-word timing is estimated from word length, so use `[` and `]` to nudge it.
 - Tracks missing from LRCLIB show "No synced lyrics for this track" and the wave plays. YouTube Music's own lyrics (LyricFind / Musixmatch) are not synced, so they are only used to match the script.
+- LRCLIB can be rate-limited; lookups are staged and retried with back-off.
 - Script matching needs the Lyrics tab to have been opened for the song.
 - Tested in a demo harness and with the real viewer and LRCLIB on live YouTube Music tracks; the full extension on the live page is lightly tested.
 

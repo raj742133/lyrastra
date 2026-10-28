@@ -28,11 +28,19 @@ const cleanTitle = (s) => s
 const firstArtist = (s) => s.split(/\s*(?:,|&|\band\b|\bfeat\.?|\bft\.?)\s*|\s+[x×]\s+/i)[0].trim();
 const norm = (s) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim();
 
-async function getJson(url) {
-  const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
-  if (r.status === 404) return null;
-  if (!r.ok) throw new Error('lrclib ' + r.status);
-  return r.json();
+// LRCLIB rate-limits bursts (429/503): retry a couple of times with a short back-off
+async function getJson(url, tries = 3) {
+  for (let i = 0; ; i++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (r.status === 404) return null;
+      if (r.ok) return r.json();
+      if (i >= tries - 1 || (r.status !== 429 && r.status < 500)) throw new Error('lrclib ' + r.status);
+    } catch (e) {
+      if (i >= tries - 1) throw e;
+    }
+    await new Promise((res) => setTimeout(res, 600 * (i + 1)));
+  }
 }
 
 const scriptOf = (s) => {
@@ -56,7 +64,7 @@ function pick(results, title, artist, duration, script) {
     if (!text) continue; // same length alone is not enough: never show another song's lyrics
     const dd = duration && x.duration ? Math.abs(x.duration - duration) : 0;
     if (dd > 25 && text < 7) continue; // far-off length only if title AND artist both match
-    const score = text + (dd <= 6 ? 6 - dd : 0) + (script && scriptOf(x.syncedLyrics) === script ? 2.5 : 0);
+    const score = text + (dd <= 6 ? 6 - dd : 0) - Math.min(dd, 60) * 0.1 + (script && scriptOf(x.syncedLyrics) === script ? 2.5 : 0);
     if (score > bestScore) { best = x; bestScore = score; }
   }
   return best ? { lrc: best.syncedLyrics, dur: best.duration || 0 } : null;
@@ -79,17 +87,17 @@ async function fetchLyrics({ title, artist, duration, script }) {
     return list ? pick(list, ct, fa, dur, script) : null;
   };
 
-  const tries = [
-    get(title, artist),
-    get(ct, fa),
-    search({ q: title }),
-    search({ q: `${ct} ${fa}` }),
-    search({ track_name: ct, artist_name: fa }),
-    search({ track_name: ct }),
+  // cheap exact lookups first; only widen to searches when they miss (fewer simultaneous requests)
+  const stages = [
+    [get(title, artist), get(ct, fa)],
+    [search({ q: `${ct} ${fa}` }), search({ q: title })],
+    [search({ track_name: ct, artist_name: fa }), search({ track_name: ct })],
   ];
-  // run every lookup at once (a slow LRCLIB miss must not block the rest), prefer them in order
-  const found = await Promise.all(tries.map(attempt));
-  const hit = found.find(Boolean);
+  let hit = null;
+  for (const stage of stages) {
+    hit = (await Promise.all(stage.map(attempt))).find(Boolean);
+    if (hit) break;
+  }
   if (hit) return hit;
   if (failed) throw new Error('lyrics lookup failed'); // network/server trouble: let the viewer retry
   return null;
