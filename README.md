@@ -39,7 +39,7 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 ## How it works
 
 - `content.js` runs on YouTube Music. It reads the title, artist, cover and playback position, picks an accent colour from the cover, and streams that state to the extension.
-- `background.js` fetches synced lyrics from [LRCLIB](https://lrclib.net) (`/api/get` and several `/api/search` queries run in parallel; the best title, artist, length and script match wins).
+- `background.js` fetches synced lyrics from [LRCLIB](https://lrclib.net) (exact `/api/get` first, then `/api/search` queries in stages with retry; entries without real timestamps are rejected, and the best title, artist, length and script match wins).
 - `viewer.html` / `viewer.js` render everything on a canvas.
 
 ## Limitations
@@ -47,6 +47,8 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 - LRCLIB has line-level timestamps only. Per-word timing is estimated from word length, so use `[` and `]` to nudge it.
 - Tracks missing from LRCLIB show "No synced lyrics for this track" and the wave plays. YouTube Music's own lyrics (LyricFind / Musixmatch) are not synced, so they are only used to match the script.
 - LRCLIB can be rate-limited; lookups are staged and retried with back-off.
+- Some songs only have a different-length recording on LRCLIB (e.g. a few seconds off all the way through). The viewer shows a hint; fix it per song with `[` / `]`.
+- Checked on 35 songs from a real YouTube Music queue (Hindi, Punjabi, Karan Aujla): 20 of 24 in the final run got timed lyrics, none errored; the rest are not on LRCLIB.
 - Script matching needs the Lyrics tab to have been opened for the song.
 - Tested in a demo harness and with the real viewer and LRCLIB on live YouTube Music tracks; the full extension on the live page is lightly tested.
 
