@@ -1,4 +1,19 @@
-# YTM Skyfield
+<p align="center"><img src="docs/banner.png" alt="YTM Skyfield" width="100%"></p>
+
+<p align="center">
+  <img src="docs/logo.png" width="96" alt="logo"><br>
+  <b>Every word is a star.</b><br>
+  Synced YouTube Music lyrics as a glowing 3D constellation, in a window made for your second monitor.
+</p>
+
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-c6ff3d?style=for-the-badge&labelColor=0b0a18">
+  <img alt="manifest" src="https://img.shields.io/badge/Chrome%20MV3-extension-4de1ff?style=for-the-badge&labelColor=0b0a18">
+  <img alt="lyrics" src="https://img.shields.io/badge/lyrics-LRCLIB-ff5cc8?style=for-the-badge&labelColor=0b0a18">
+  <img alt="version" src="https://img.shields.io/badge/version-5.1-white?style=for-the-badge&labelColor=0b0a18">
+</p>
+
+---
 
 Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is a star, the camera flies through the song, and the whole screen glows in the colour of the album art.
 

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640">
+  <defs>
+    <radialGradient id="bg" cx="30%" cy="30%" r="90%"><stop offset="0" stop-color="#1d1546"/><stop offset="1" stop-color="#06050d"/></radialGradient>
+    <linearGradient id="ln" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#c6ff3d"/><stop offset="0.5" stop-color="#4de1ff"/><stop offset="1" stop-color="#ff5cc8"/></linearGradient>
+    <radialGradient id="halo"><stop offset="0" stop-color="#fff" stop-opacity=".8"/><stop offset=".4" stop-color="#4de1ff" stop-opacity=".3"/><stop offset="1" stop-color="#4de1ff" stop-opacity="0"/></radialGradient>
+    <filter id="g" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect x="6" y="6" width="1268" height="628" fill="none" stroke="url(#ln)" stroke-opacity=".6" stroke-width="4" filter="url(#g)"/>
+  <g stroke="url(#ln)" stroke-width="3.5" stroke-linecap="round" fill="none" filter="url(#g)" opacity=".9">
+    <path d="M650 470 L760 400 L850 430 L930 320 L1040 270 L1160 300"/>
+    <path d="M760 400 L800 280 L930 320 L1010 190 L1160 140" stroke-opacity=".5"/>
+  </g>
+  <g filter="url(#g)">
+    <circle cx="650" cy="470" r="8" fill="#c6ff3d"/><circle cx="760" cy="400" r="11" fill="#9ff0ff"/>
+    <circle cx="850" cy="430" r="7" fill="#fff" fill-opacity=".8"/><circle cx="800" cy="280" r="6" fill="#fff" fill-opacity=".6"/>
+    <circle cx="1040" cy="270" r="8" fill="#fff"/><circle cx="1160" cy="300" r="9" fill="#ff5cc8"/>
+    <circle cx="1010" cy="190" r="7" fill="#fff" fill-opacity=".7"/><circle cx="1160" cy="140" r="9" fill="#4de1ff"/>
+  </g>
+  <circle cx="930" cy="320" r="120" fill="url(#halo)"/>
+  <path filter="url(#g)" fill="#fff" d="M930 230 C938 292 952 308 1016 320 C952 332 938 348 930 410 C922 348 908 332 844 320 C908 308 922 292 930 230Z"/>
+  <text x="90" y="300" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="96" font-weight="800" fill="#fff">YTM <tspan fill="url(#ln)">Skyfield</tspan></text>
+  <text x="94" y="360" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="32" fill="#b9b4d6">Every word is a star.</text>
+  <text x="94" y="404" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="24" fill="#8a85ab">Synced YouTube Music lyrics as a glowing 3D constellation</text>
+</svg>
