@@ -55,3 +55,7 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 ## Credits
 
 Design research drew on [Verso](https://github.com/AkkiCode06/verso), [Lyric Box](https://github.com/trinknx/lyric-box) and [Verci](https://www.verci.xyz/), and on the "Peak music setup" reel that started it.
+
+## License
+
+[MIT](LICENSE)
