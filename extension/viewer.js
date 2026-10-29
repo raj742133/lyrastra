@@ -201,14 +201,18 @@
   }
 
   // neon rim: a bright arc orbits the screen edge and leaves a dark gap, like the reel
-  const RIM_PERIOD = 3200, RIM_ARC = 0.58, RIM_SEG = 14;
-  function rimLevel(u, head) { // 1 at the head, fading along the tail, 0 inside the gap
-    const d = (head - u + 1) % 1;
-    return d > RIM_ARC ? 0 : Math.pow(1 - d / RIM_ARC, 1.6);
+  // Edge light as in the reel: one lit stretch (about half the lap, even brightness, short soft
+  // ends) circling the screen counter-clockwise with a dark gap behind it, ~2.5 s per lap.
+  const RIM_PERIOD = 2500, RIM_ARC = 0.55, RIM_SOFT = 0.07, RIM_SEG = 48;
+  const smooth = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+  function rimLevel(u, head) { // u = position along the lap, head = leading end of the lit stretch
+    const d = (head - u + 1) % 1; // distance behind the head
+    if (d > RIM_ARC) return 0;
+    return smooth(d / RIM_SOFT) * smooth((RIM_ARC - d) / RIM_SOFT) * 0.15 + 0.85 * smooth(d / RIM_SOFT) * smooth((RIM_ARC - d) / (RIM_SOFT * 2));
   }
   function drawRim(W, H, k, now) {
-    const head = reducedMotion ? 0.3 : (now / RIM_PERIOD) % 1;
-    const P = 2 * (W + H), dep = Math.min(W, H) * 0.14, a = 0.1 + 0.55 * (0.6 + 0.4 * k);
+    const head = reducedMotion ? 0.3 : 1 - (now / RIM_PERIOD) % 1;
+    const P = 2 * (W + H), dep = Math.min(W, H) * 0.04, a = 0.45 + 0.35 * k;
     const sides = [ // clockwise from the top-left corner
       { len: W, at: (t) => [t * W, 0], gx: 0, gy: 1 },
       { len: H, at: (t) => [W, t * H], gx: -1, gy: 0 },
@@ -217,22 +221,23 @@
     ];
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'butt';
     let off = 0;
     for (const sd of sides) {
       for (let i = 0; i < RIM_SEG; i++) {
         const t0 = i / RIM_SEG, t1 = (i + 1) / RIM_SEG;
         const lv = rimLevel((off + (t0 + t1) / 2 * sd.len) / P, head);
-        if (lv < 0.02) continue;
+        if (lv < 0.01) continue;
         const [x0, y0] = sd.at(t0), [x1, y1] = sd.at(t1);
-        const ix = sd.gx > 0 ? 1 : sd.gx < 0 ? -1 : 0, iy = sd.gy > 0 ? 1 : sd.gy < 0 ? -1 : 0;
-        ctx.lineCap = 'butt';
+        const gx = sd.gx, gy = sd.gy;
+        const g = ctx.createLinearGradient(x0, y0, x0 + gx * dep, y0 + gy * dep); // inner glow
+        g.addColorStop(0, rgba(a * lv * 0.55)); g.addColorStop(1, rgba(0));
+        ctx.fillStyle = g;
+        ctx.fillRect(Math.min(x0, x1, x0 + gx * dep), Math.min(y0, y1, y0 + gy * dep),
+          Math.abs(x1 - x0) + Math.abs(gx) * dep + 0.6, Math.abs(y1 - y0) + Math.abs(gy) * dep + 0.6);
         ctx.beginPath();
-        ctx.moveTo(x0 + ix * 2, y0 + iy * 2); ctx.lineTo(x1 + ix * 2, y1 + iy * 2);
-        ctx.strokeStyle = rgba(a * lv * 0.5); // soft halo
-        ctx.lineWidth = 8; ctx.shadowColor = rgba(0.85 * lv); ctx.shadowBlur = dep * 0.5;
-        ctx.stroke();
-        ctx.strokeStyle = hot(Math.min(1, 0.95 * lv)); // crisp core
-        ctx.lineWidth = 2; ctx.shadowBlur = 10;
+        ctx.moveTo(x0 + gx * 1.5, y0 + gy * 1.5); ctx.lineTo(x1 + gx * 1.5, y1 + gy * 1.5);
+        ctx.strokeStyle = hot(Math.min(1, lv)); ctx.lineWidth = 3;
         ctx.stroke();
       }
       off += sd.len;
