@@ -14,12 +14,17 @@
     let title = $('[data-testid="context-item-link"]')?.textContent.trim();
     let artist = [...document.querySelectorAll('[data-testid="context-item-info-artist"], [data-testid="context-item-info-subtitles"] a')]
       .map((a) => a.textContent.trim()).filter(Boolean).join(', ');
+    const bar = $('[data-testid="now-playing-bar"]') || $('footer') || document;
+    if (!title) title = bar.querySelector('a[href*="/track/"], a[href*="/album/"]')?.textContent.trim();
+    if (!artist) artist = [...bar.querySelectorAll('a[href*="/artist/"]')].map((a) => a.textContent.trim()).filter(Boolean).join(', ');
+    const md = navigator.mediaSession?.metadata;
+    if (!title && md?.title) { title = md.title; artist = artist || md.artist; }
     if (!title) { // page title while playing is "Song • Artist"
       const m = document.title.match(/^(.+?)\s*[•·]\s*(.+)$/);
       if (m && !/spotify/i.test(m[1])) { title = m[1].trim(); artist = artist || m[2].replace(/\s*[•·|-]\s*Spotify.*$/i, '').trim(); }
     }
     if (!title || /^advertisement$/i.test(title)) return null;
-    const thumb = $('[data-testid="cover-art-image"]')?.src || $('[data-testid="now-playing-widget"] img')?.src || '';
+    const thumb = $('[data-testid="cover-art-image"]')?.src || bar.querySelector('img[src*="scdn.co"], img[src*="spotifycdn"]')?.src || md?.artwork?.slice(-1)[0]?.src || '';
     return { title, artist, thumb };
   }
 
