@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Skyfield (v5)",
+  "name": "Lyrastra",
   "version": "0.6.0",
   "description": "Synced lyrics as a glowing constellation on top of YouTube Music and Spotify.",
   "host_permissions": [

@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/banner.png" alt="YTM Skyfield" width="100%"></p>
+<p align="center"><img src="docs/banner.png" alt="Lyrastra" width="100%"></p>
 
 <p align="center">
   <img src="docs/logo.png" width="96" alt="logo"><br>
