@@ -77,3 +77,7 @@ Design research drew on [Verso](https://github.com/AkkiCode06/verso), [Lyric Box
 ## License
 
 [MIT](LICENSE)
+
+## v0.8.0 changes
+
+Stricter LRCLIB title matching, multi-timestamp LRC lines, per-track offsets, state validation, reduced-motion and hidden-tab handling, a `?` shortcut guide, `Alt+Shift+C` to open the viewer, and Bengali script detection. Run `python tests/smoke_check.py` for a quick structural check.

@@ -50,10 +50,10 @@ const timed = (s) => (s || '').match(/^\s*\[\d+:\d+/gm)?.length > 3;
 
 const scriptOf = (s) => {
   const m = (s || '').match(/[\p{L}]/gu) || [];
-  let deva = 0, guru = 0, latin = 0;
-  for (const c of m) { const k = c.codePointAt(0); if (k >= 0x900 && k <= 0x97f) deva++; else if (k >= 0xa00 && k <= 0xa7f) guru++; else if (k < 0x250) latin++; }
-  const top = Math.max(deva, guru, latin);
-  return !top ? '' : top === deva ? 'deva' : top === guru ? 'guru' : 'latin';
+  const counts = { deva: 0, guru: 0, beng: 0, latin: 0 };
+  for (const c of m) { const k = c.codePointAt(0); if (k >= 0x900 && k <= 0x97f) counts.deva++; else if (k >= 0xa00 && k <= 0xa7f) counts.guru++; else if (k >= 0x980 && k <= 0x9ff) counts.beng++; else if (k < 0x250) counts.latin++; }
+  const [script, count] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  return count ? script : '';
 };
 
 function pick(results, title, artist, duration, script) {
@@ -66,10 +66,11 @@ function pick(results, title, artist, duration, script) {
     if (xt === ta) text += 4;
     else if (xt && ta && (xt.includes(ta) || ta.includes(xt))) text += 2;
     if (aa && norm(x.artistName || '').includes(aa)) text += 3;
-    if (!text) continue; // same length alone is not enough: never show another song's lyrics
+    if (text < 4) continue; // Require a credible title match; artist/duration alone must never select lyrics
     const dd = duration && x.duration ? Math.abs(x.duration - duration) : 0;
     if (dd > 25 && text < 7) continue; // far-off length only if title AND artist both match
     const score = text + (dd <= 6 ? 6 - dd : 0) - Math.min(dd, 60) * 0.1 + (script && scriptOf(x.syncedLyrics) === script ? 2.5 : 0);
+    if (dur && x.duration && dd > 20 && text < 7) continue;
     if (score > bestScore) { best = x; bestScore = score; }
   }
   return best ? { lrc: best.syncedLyrics, dur: best.duration || 0 } : null;

@@ -72,10 +72,12 @@
 
   const toggle = document.createElement('button');
   toggle.id = 'ytmc-toggle';
-  toggle.title = 'Open constellation lyrics in a new window';
+  toggle.title = 'Open Lyrastra constellation lyrics (Alt+Shift+C)';
+  toggle.setAttribute('aria-label', 'Open Lyrastra constellation lyrics');
+  toggle.type = 'button';
   toggle.textContent = '✦';
   toggle.onclick = () => chrome.runtime.sendMessage({ type: 'open' });
-  document.body.append(toggle);
+  if (!document.getElementById('ytmc-toggle')) document.body.append(toggle);
 
   addEventListener('keydown', (e) => {
     if (e.altKey && e.shiftKey && e.code === 'KeyC') chrome.runtime.sendMessage({ type: 'open' });

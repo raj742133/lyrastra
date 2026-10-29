@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Lyrastra",
-  "version": "0.6.0",
-  "description": "Synced lyrics as a glowing constellation on top of YouTube Music and Spotify.",
+  "version": "0.8.0",
+  "description": "Time-synced lyrics visualized as an animated constellation for YouTube Music and Spotify.",
   "host_permissions": [
     "https://lrclib.net/*"
   ],
@@ -39,5 +39,8 @@
     "16": "icons/16.png",
     "48": "icons/48.png",
     "128": "icons/128.png"
-  }
+  },
+  "permissions": [
+    "tabs"
+  ]
 }

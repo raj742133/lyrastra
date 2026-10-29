@@ -14,3 +14,7 @@
   cursor: pointer;
 }
 #ytmc-toggle:hover { background: rgba(0, 0, 0, 0.9); }
+
+#ytmc-toggle:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+#ytmc-toggle:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) { #ytmc-toggle { transition: none !important; } }

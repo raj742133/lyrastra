@@ -10,10 +10,10 @@
   let lyrics = [];
   let panelLyr = ''; // lyrics text YouTube Music itself shows (if its Lyrics tab was opened)
   const scriptOf = (s) => {
-    let d = 0, g = 0, l = 0;
-    for (const c of s.match(/\p{L}/gu) || []) { const k = c.codePointAt(0); if (k >= 0x900 && k <= 0x97f) d++; else if (k >= 0xa00 && k <= 0xa7f) g++; else if (k < 0x250) l++; }
-    const top = Math.max(d, g, l);
-    return !top ? '' : top === d ? 'deva' : top === g ? 'guru' : 'latin';
+    const counts = { deva: 0, guru: 0, beng: 0, latin: 0 };
+    for (const c of s.match(/\p{L}/gu) || []) { const k = c.codePointAt(0); if (k >= 0x900 && k <= 0x97f) counts.deva++; else if (k >= 0xa00 && k <= 0xa7f) counts.guru++; else if (k >= 0x980 && k <= 0x9ff) counts.beng++; else if (k < 0x250) counts.latin++; }
+    const [script, count] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    return count ? script : '';
   };
   let status = '';
   let coverAccent = null;
@@ -23,13 +23,16 @@
   let pulse = 0;
   let lastKey = '';
   let idleTimer;
+  let rafId = 0;
+  let helpVisible = false;
+  let reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
   let lastFrame = performance.now();
   let mx = 0, my = 0, smx = 0, smy = 0;
   let camX = 0, camY = 0, camZ = 0;
   const groups = new Map();
   const bursts = [];
   let lrcDur = 0; // length of the LRCLIB recording the lyrics were timed against
-  const offKey = () => 'ytmc-offset:' + (trackKey || '');
+  const offKey = () => 'lyrastra-offset:' + (trackKey || '') + (player?.duration > 0 ? '|' + Math.round(player.duration) : '');
   const loadOffset = () => { offset = 0; try { offset = parseFloat(localStorage.getItem(offKey())) || 0; } catch { /* storage blocked */ } };
 
   const accent = () => (useCover && coverAccent ? coverAccent : NEON);
@@ -41,14 +44,25 @@
 
   function parseLrc(text) {
     const out = [];
-    for (const raw of text.split(/\r?\n/)) {
-      const stamps = [...raw.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      // Ignore metadata tags while supporting multiple timestamps on one line.
+      const stamps = [...raw.matchAll(/\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]/g)];
       if (!stamps.length) continue;
       const line = raw.replace(/\[[^\]]*\]/g, '').trim();
       const words = line ? line.split(/\s+/) : [];
-      for (const s of stamps) out.push({ t: +s[1] * 60 + +s[2], words });
+      for (const match of stamps) {
+        const seconds = Number(match[2].replace(':', '.'));
+        const t = Number(match[1]) * 60 + seconds;
+        if (Number.isFinite(t) && t >= 0) out.push({ t, words });
+      }
     }
-    return out.sort((a, b) => a.t - b.t);
+    out.sort((a, b) => a.t - b.t);
+    return out.reduce((acc, item) => {
+      const last = acc[acc.length - 1];
+      if (last && Math.abs(last.t - item.t) < 0.001) { if (item.words.length) last.words = item.words; }
+      else acc.push(item);
+      return acc;
+    }, []);
   }
 
   let player = null, recvAt = 0;
@@ -74,7 +88,8 @@
   // The player bar text can change before the video's duration is known, and a lookup can fail
   // transiently (service worker asleep, network). Wait for the duration, then retry a few times.
   function loadLyrics(t, seq, attempt, prevDur = 0) {
-    const dur = player && player.title === t.title ? player.duration : t.duration;
+    const sameTrack = player && player.title === t.title && player.artist === t.artist;
+    const dur = sameTrack && player.duration > 0 ? player.duration : (t.duration || 0);
     // on auto-advance the bar shows the new title while the player still reports the old song's
     // length: wait (briefly) for a length that is known and has moved on from the previous song
     const stale = prevDur > 0 && Math.abs(dur - prevDur) < 0.5 && player && player.t > 3;
@@ -94,22 +109,36 @@
   let playSrc = '', playAt = 0;
   chrome.runtime.onMessage.addListener((m) => {
     if (m?.type !== 'state') return;
+    if (!['ytm', 'spotify'].includes(m.src) || !String(m.title || '').trim()) return;
+    // Normalize fields from content scripts before using them in timing and rendering.
+    m = { ...m, title: String(m.title).trim().slice(0, 300), artist: String(m.artist || '').trim().slice(0, 300), t: Number.isFinite(Number(m.t)) ? Math.max(0, Number(m.t)) : 0, duration: Number.isFinite(Number(m.duration)) ? Math.max(0, Number(m.duration)) : 0, paused: Boolean(m.paused) };
     // YouTube Music and Spotify tabs may both be open: a paused one must not override the playing one
-    if (!m.paused) { playSrc = m.src; playAt = performance.now(); }
-    else if (m.src !== playSrc && performance.now() - playAt < 1500) return;
+    const now = performance.now();
+    // Prefer a source that is actively playing; ignore stale paused-tab updates briefly.
+    if (!m.paused) { playSrc = m.src; playAt = now; }
+    else if (m.src !== playSrc && now - playAt < 2500) return;
     const prev = player;
-    if (m.lyr) panelLyr = m.lyr.text || '';
+    const previousTrackKey = trackKey;
+    const previousDuration = lastDur;
+    if (m.lyr) panelLyr = String(m.lyr.text || '').slice(0, 12000);
     player = m;
     recvAt = performance.now();
-    coverAccent = m.accent || null;
-    const key = m.title + '|' + m.artist;
-    // new song, or the same song restarted / a different cut with a very different length
-    const restarted = prev && key === trackKey && m.t < lastT - 3 && m.t < 2;
-    const recut = key === trackKey && lastDur > 0 && m.duration > 0 && Math.abs(m.duration - lastDur) > 3;
-    lastT = m.t;
+    coverAccent = Array.isArray(m.accent) && m.accent.length >= 3 && m.accent.slice(0, 3).every((v) => Number.isFinite(v) && v >= 0 && v <= 255) ? m.accent.slice(0, 3) : null;
+    const key = String(m.src || '') + '|' + String(m.title || '').trim() + '|' + String(m.artist || '').trim();
+    // Capture the previous duration before updating it. Otherwise auto-advance stale-duration
+    // detection compares the new duration to itself and never gets a chance to work.
+    const restarted = prev && key === previousTrackKey && m.t < lastT - 3 && m.t < 2;
+    const recut = key === previousTrackKey && previousDuration > 0 && m.duration > 0 && Math.abs(m.duration - previousDuration) > 3;
+    lastT = Number.isFinite(m.t) ? m.t : 0;
     if (m.duration > 0) lastDur = m.duration;
-    if (key !== trackKey || recut) { const pd = key !== trackKey ? lastDur : 0; trackKey = key; lastDur = m.duration; loadOffset(); onTrackChange(m, pd); }
-    else if (restarted && !lyrics.length) onTrackChange(m);
+    if (key !== previousTrackKey || recut) {
+      if (key !== previousTrackKey && !m.lyr) panelLyr = '';
+      const pd = key !== previousTrackKey ? previousDuration : 0;
+      trackKey = key;
+      lastDur = m.duration || 0;
+      loadOffset();
+      onTrackChange(m, pd);
+    } else if (restarted && !lyrics.length) onTrackChange(m);
   });
 
   // ---------- constellation for one lyric line, placed in 3D ----------
@@ -356,7 +385,7 @@
   }
 
   function drawFrame(now) {
-    requestAnimationFrame(drawFrame);
+    rafId = requestAnimationFrame(drawFrame);
     const dt = Math.min(0.05, (now - lastFrame) / 1000);
     lastFrame = now;
     const dpr = Math.min(devicePixelRatio || 1, 1.5);
@@ -374,9 +403,10 @@
     for (let i = 0; i < lyrics.length; i++) { if (lyrics[i].t <= t) idx = i; else break; }
     const focus = Math.max(0, idx);
     const target = lyrics.length ? getGroup(focus) : null;
-    smx += (mx - smx) * Math.min(1, dt * 3);
-    smy += (my - smy) * Math.min(1, dt * 3);
-    pulse *= Math.pow(0.04, dt);
+    const motion = reducedMotion ? 0.12 : 1;
+    smx += (mx - smx) * Math.min(1, dt * 3 * motion);
+    smy += (my - smy) * Math.min(1, dt * 3 * motion);
+    pulse *= Math.pow(reducedMotion ? 0.2 : 0.04, dt);
     if (target && target.nodes.length) {
       // follow the sung word, drifting through the field
       let act = target.nodes[0];
@@ -387,7 +417,7 @@
       camZ += (focus * DEPTH - camZ) * (1 - Math.pow(0.12, dt));
     }
 
-    drawDust(W, H, now);
+    if (!reducedMotion) drawDust(W, H, now);
     // The wave is only for real silences: the gap between the end of the sung line and the next
     // line must be longer than GAP_MIN, so short breaths between lines keep the constellation.
     let longGap = false;
@@ -403,8 +433,8 @@
     } else {
       longGap = !/Looking/.test(status); // a track with no lyrics at all
     }
-    drawWave(W, H, now, dt, longGap && !waiting() && !(player && player.paused));
-    drawRim(W, H, 0.5 * (0.5 + 0.5 * Math.sin(now / 1100)) + 0.5 * pulse);
+    if (!reducedMotion) drawWave(W, H, now, dt, longGap && !waiting() && !(player && player.paused));
+    drawRim(W, H, reducedMotion ? 0.25 : 0.5 * (0.5 + 0.5 * Math.sin(now / 1100)) + 0.5 * pulse);
 
     if (target) {
       const order = [];
@@ -415,7 +445,7 @@
       ctx.globalAlpha = 1;
       for (const k of groups.keys()) if (k < focus - 3) groups.delete(k);
     }
-    drawBursts(now);
+    if (!reducedMotion) drawBursts(now);
 
     if (lyrics.length && lrcDur && player && player.duration && Math.abs(lrcDur - player.duration) > 2) {
       const d = player.duration - lrcDur;
@@ -430,7 +460,8 @@
       ctx.textAlign = 'center';
       ctx.fillText(`Lyrics offset ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s (this song)`, W / 2, H - 28);
     }
-    const msg = waiting() ? 'Waiting for YouTube Music… play a song in the other tab' : status;
+    const sourceName = player?.src === 'spotify' ? 'Spotify' : 'YouTube Music';
+    const msg = waiting() ? `Waiting for ${sourceName}… play a song in the other tab` : status;
     if (msg) {
       ctx.font = '500 16px system-ui, sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
@@ -438,6 +469,15 @@
       ctx.textBaseline = 'middle';
       ctx.fillText(msg, W / 2, H / 2 + Math.min(W, H) * 0.3);
     }
+    if (helpVisible) drawHelp(W, H);
+  }
+
+  function drawHelp(W, H) {
+    const lines = ['LYRASTRA · KEYBOARD SHORTCUTS', '[ / ]  Nudge lyrics by 0.1 seconds', '{ / }  Nudge lyrics by 1 second', '0  Reset this song’s timing offset', 'C  Toggle album-art colour / neon green', 'F or double-click  Toggle fullscreen', 'R  Retry lyric lookup for this track', '? or H  Toggle this help · Esc closes it', 'Offsets are saved per track in this viewer.'];
+    ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '600 18px system-ui, sans-serif'; ctx.fillStyle = hot(1);
+    ctx.fillText(lines[0], W / 2, H / 2 - 118); ctx.font = '14px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.86)';
+    lines.slice(1).forEach((line, i) => ctx.fillText(line, W / 2, H / 2 - 82 + i * 25)); ctx.restore();
   }
 
   function nudge(d) {
@@ -452,12 +492,14 @@
     ctx = canvas.getContext('2d');
     meta = document.getElementById('ytmc-meta');
     addEventListener('keydown', (e) => {
+      if (e.key === '?' || e.key.toLowerCase() === 'h') { helpVisible = !helpVisible; e.preventDefault(); return; }
+      if (e.key === 'Escape') { helpVisible = false; return; }
       if (e.key === '[') nudge(-0.1);
       else if (e.key === ']') nudge(0.1);
       else if (e.key === '{') nudge(-1);
       else if (e.key === '}') nudge(1);
       else if (e.key === '0') { offset = 0; nudge(0); }
-      else if (e.key === 'f' || e.key === 'F') toggleFs();
+      else if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleFs();
       else if (e.key === 'c' || e.key === 'C') useCover = !useCover;
       else if ((e.key === 'r' || e.key === 'R') && player) onTrackChange(player); // reload lyrics now
     });
@@ -468,6 +510,11 @@
       clearTimeout(idleTimer);
       idleTimer = setTimeout(() => document.body.classList.add('idle'), 2500);
     });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (rafId) cancelAnimationFrame(rafId); rafId = 0; }
+      else if (!rafId) { lastFrame = performance.now(); rafId = requestAnimationFrame(drawFrame); }
+    });
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').addEventListener?.('change', (e) => { reducedMotion = e.matches; });
     requestAnimationFrame(drawFrame);
   }
   init();
