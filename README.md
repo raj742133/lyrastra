@@ -3,7 +3,7 @@
 <p align="center">
   <img src="docs/logo.png" width="96" alt="logo"><br>
   <b>Every word is a star.</b><br>
-  Synced YouTube Music lyrics as a glowing 3D constellation, in a window made for your second monitor.
+  Synced lyrics for YouTube Music <b>and Spotify</b> as a glowing 3D constellation, in a window made for your second monitor.
 </p>
 
 <p align="center">
@@ -32,6 +32,7 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 - **Wave in long gaps.** When the lyrics pause for more than 3 seconds while music plays (intro, instrumental, outro), a glowing wave in the cover colour replaces the constellation. Shorter gaps are ignored, and the constellation returns when the lyrics do.
 - **Punjabi / Hindi aware.** If the YouTube Music Lyrics tab is open, the extension reads its text and prefers the LRCLIB entry in the same script (Latin, Devanagari or Gurmukhi).
 - **Reliable song changes.** Lyrics are looked up in parallel, retried on failure, and re-fetched when a song auto-advances. Press `R` to reload them by hand.
+- **YouTube Music and Spotify.** Works on `music.youtube.com` and the Spotify Web Player (`open.spotify.com`). If both are open, the one that is playing drives the viewer.
 - **Second-monitor window.** The ✦ button on the YouTube Music page opens the viewer in its own window, ready to drag to another screen.
 
 ## Install (Chrome / Edge, unpacked)
@@ -59,6 +60,8 @@ Synced lyrics for **YouTube Music** as a glowing 3D constellation. Every word is
 
 ## Limitations
 
+- Spotify support is new: the player-bar controls (play/pause, position, duration) were checked against the live Spotify page, but title, artist and cover selectors could not be checked without a signed-in session. It falls back to the page title (`Song • Artist`). Report anything that doesn't show up.
+- On Spotify the position only updates once a second, so the extension keeps its own sub-second clock between ticks. Script matching from the Lyrics tab is YouTube Music only.
 - LRCLIB has line-level timestamps only. Per-word timing is estimated from word length, so use `[` and `]` to nudge it.
 - Tracks missing from LRCLIB show "No synced lyrics for this track" and the wave plays. YouTube Music's own lyrics (LyricFind / Musixmatch) are not synced, so they are only used to match the script.
 - LRCLIB can be rate-limited; lookups are staged and retried with back-off.

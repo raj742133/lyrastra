@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YTM Skyfield (v5)",
-  "version": "0.5.0",
-  "description": "Synced lyrics as a glowing constellation on top of YouTube Music.",
+  "name": "Skyfield (v5)",
+  "version": "0.6.0",
+  "description": "Synced lyrics as a glowing constellation on top of YouTube Music and Spotify.",
   "host_permissions": [
     "https://lrclib.net/*"
   ],
@@ -16,6 +16,18 @@
       ],
       "js": [
         "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://open.spotify.com/*"
+      ],
+      "js": [
+        "spotify.js"
       ],
       "css": [
         "content.css"

@@ -65,7 +65,7 @@
     const pl = panelLyrics();
     const lyr = pl.text !== sentLyr ? (sentLyr = pl.text, { text: pl.text, source: pl.source }) : undefined;
     chrome.runtime.sendMessage(
-      { type: 'state', lyr, thumb: t.thumb, title: t.title, artist: t.artist, duration: Number.isFinite(v.duration) ? v.duration : 0, t: v.currentTime, paused: v.paused, accent },
+      { type: 'state', src: 'ytm', lyr, thumb: t.thumb, title: t.title, artist: t.artist, duration: Number.isFinite(v.duration) ? v.duration : 0, t: v.currentTime, paused: v.paused, accent },
       () => void chrome.runtime.lastError // no viewer open: ignore
     );
   }, 125);

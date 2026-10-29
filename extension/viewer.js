@@ -91,8 +91,12 @@
     });
   }
 
+  let playSrc = '', playAt = 0;
   chrome.runtime.onMessage.addListener((m) => {
     if (m?.type !== 'state') return;
+    // YouTube Music and Spotify tabs may both be open: a paused one must not override the playing one
+    if (!m.paused) { playSrc = m.src; playAt = performance.now(); }
+    else if (m.src !== playSrc && performance.now() - playAt < 1500) return;
     const prev = player;
     if (m.lyr) panelLyr = m.lyr.text || '';
     player = m;
