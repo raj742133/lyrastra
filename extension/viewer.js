@@ -200,30 +200,44 @@
     }
   }
 
-  // neon glowing screen rim, like the reel
-  function drawRim(W, H, k) {
+  // neon rim: a bright arc orbits the screen edge and leaves a dark gap, like the reel
+  const RIM_PERIOD = 3200, RIM_ARC = 0.58, RIM_SEG = 14;
+  function rimLevel(u, head) { // 1 at the head, fading along the tail, 0 inside the gap
+    const d = (head - u + 1) % 1;
+    return d > RIM_ARC ? 0 : Math.pow(1 - d / RIM_ARC, 1.6);
+  }
+  function drawRim(W, H, k, now) {
+    const head = reducedMotion ? 0.3 : (now / RIM_PERIOD) % 1;
+    const P = 2 * (W + H), dep = Math.min(W, H) * 0.14, a = 0.1 + 0.55 * (0.6 + 0.4 * k);
+    const sides = [ // clockwise from the top-left corner
+      { len: W, at: (t) => [t * W, 0], gx: 0, gy: 1 },
+      { len: H, at: (t) => [W, t * H], gx: -1, gy: 0 },
+      { len: W, at: (t) => [W - t * W, H], gx: 0, gy: -1 },
+      { len: H, at: (t) => [0, H - t * H], gx: 1, gy: 0 },
+    ];
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const d = Math.min(W, H) * 0.16;
-    const a = 0.2 + 0.28 * k;
-    for (const [x0, y0, x1, y1, rx, ry, rw, rh] of [
-      [0, 0, 0, d, 0, 0, W, d], [0, H, 0, H - d, 0, H - d, W, d],
-      [0, 0, d, 0, 0, 0, d, H], [W, 0, W - d, 0, W - d, 0, d, H],
-    ]) {
-      const g = ctx.createLinearGradient(x0, y0, x1, y1);
-      g.addColorStop(0, rgba(a));
-      g.addColorStop(0.18, rgba(a * 0.28));
-      g.addColorStop(1, rgba(0));
-      ctx.fillStyle = g;
-      ctx.fillRect(rx, ry, rw, rh);
+    let off = 0;
+    for (const sd of sides) {
+      for (let i = 0; i < RIM_SEG; i++) {
+        const t0 = i / RIM_SEG, t1 = (i + 1) / RIM_SEG;
+        const lv = rimLevel((off + (t0 + t1) / 2 * sd.len) / P, head);
+        if (lv < 0.02) continue;
+        const [x0, y0] = sd.at(t0), [x1, y1] = sd.at(t1);
+        const ix = sd.gx > 0 ? 1 : sd.gx < 0 ? -1 : 0, iy = sd.gy > 0 ? 1 : sd.gy < 0 ? -1 : 0;
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.moveTo(x0 + ix * 2, y0 + iy * 2); ctx.lineTo(x1 + ix * 2, y1 + iy * 2);
+        ctx.strokeStyle = rgba(a * lv * 0.5); // soft halo
+        ctx.lineWidth = 8; ctx.shadowColor = rgba(0.85 * lv); ctx.shadowBlur = dep * 0.5;
+        ctx.stroke();
+        ctx.strokeStyle = hot(Math.min(1, 0.95 * lv)); // crisp core
+        ctx.lineWidth = 2; ctx.shadowBlur = 10;
+        ctx.stroke();
+      }
+      off += sd.len;
     }
     ctx.restore();
-    ctx.strokeStyle = hot(0.55 + 0.35 * k);
-    ctx.lineWidth = 2;
-    ctx.shadowColor = rgba(0.9);
-    ctx.shadowBlur = 10;
-    ctx.strokeRect(1, 1, W - 2, H - 2);
-    ctx.shadowBlur = 0;
   }
 
   function fontFor(mood, size, bold) {
@@ -434,7 +448,7 @@
       longGap = !/Looking/.test(status); // a track with no lyrics at all
     }
     if (!reducedMotion) drawWave(W, H, now, dt, longGap && !waiting() && !(player && player.paused));
-    drawRim(W, H, reducedMotion ? 0.25 : 0.5 * (0.5 + 0.5 * Math.sin(now / 1100)) + 0.5 * pulse);
+    drawRim(W, H, reducedMotion ? 0.25 : 0.5 * (0.5 + 0.5 * Math.sin(now / 1100)) + 0.5 * pulse, now);
 
     if (target) {
       const order = [];
